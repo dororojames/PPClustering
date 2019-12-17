@@ -5,8 +5,8 @@ typedef struct point Point;
 typedef struct group Group;
 typedef struct cluster Cluster;
 
-extern Point* Create_Point(unsigned int id);
-extern Group* Create_Group(unsigned int id);
+extern Point* Create_Point(unsigned int id, unsigned int n);
+extern Group* Create_Group(unsigned int id, unsigned int n);
 extern Cluster* Create_Cluster(unsigned int n);
 
 extern void Append(Point* p, Point* b, double d);
