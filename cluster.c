@@ -160,7 +160,7 @@ void Inster_Edge(Cluster* c, unsigned int p1, unsigned int p2, double d){
     return:
         none
 */
-void Merge(Group* self, Group* other){
+void Merge_Group(Group* self, Group* other){
     unsigned int insert_position = self->length;
     self->length += other->length;
     self->p = realloc(self->p, self->length * sizeof(Point*));
@@ -184,7 +184,7 @@ void Merge(Group* self, Group* other){
         none
 */
 void Merge(Cluster* c, unsigned int g1, unsigned int g2){
-    Merge(c->g[g1], c->g[g2]);
+    Merge_Group(c->g[g1], c->g[g2]);
     
     c->g[g2] = NULL;
 }
