@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <time.h>
+#include <omp.h>
 
 typedef struct group Group;
 typedef struct cluster Cluster;
@@ -152,7 +153,8 @@ float max(const float a, const float b) {return a>b?a:b;}
 
 float matmul(float input1[], float input2[], int dim) {
     float dis = 0;
-    for (int i=0; i<dim; i++) {
+    #pragma omp parallel for reduction(+:dis)
+    for (int i=0; i < dim; ++i) {
         dis += input1[i] * input2[i];
     }
     return dis;
@@ -160,11 +162,15 @@ float matmul(float input1[], float input2[], int dim) {
 
 
 void FindNearest(float* adj, int* gids, int* rgids, int* length, int *ga, int *gb) {
-    float mind = 9999;
-    for (int i = 0; i < *length-1; i++) {
-        for (int j = i+1; j < *length; j++) {
-            int gi = gids[i], gj = gids[j];
-            float gd = adj[adjindex(gi, gj)];
+    float mind = 9999, gd;
+    int i, j, gi, gj;
+//    #pragma omp parallel for schedule(dynamic) private(i, j, gi, gj, gd)
+    for (i = 0; i < *length-1; ++i) {
+        for (j = i+1; j < *length; ++j) {
+            gi = gids[i];
+            gj = gids[j];
+            gd = adj[adjindex(gi, gj)];
+//            # pragma omp critical
             if (gd < mind) {
 //                printf("{%d %d}", gi, gj);
                 mind = gd;
@@ -174,19 +180,22 @@ void FindNearest(float* adj, int* gids, int* rgids, int* length, int *ga, int *g
         }
     }
 //    printf("Merge %d %d\n", *ga, *gb);
-    for (int i=0; i<*length; i++) {
-        int gid = gids[i];
+    
+    int gid;
+//    #pragma omp parallel for private(i, gid)
+    for (i=0; i < *length; ++i) {
+        gid = gids[i];
         if (gid < *ga) {
 //            printf("Update adj(%d, %d)\n", gid, *ga);
             adj[adjindex(gid, *ga)] = max(adj[adjindex(gid, *ga)], adj[adjindex(gid, *gb)]);
         }
-        else if (gid > *ga) {
-            if (gid == *gb) continue;
+        else if (gid > *ga && gid != *gb) {
 //            printf("Update adj(%d, %d)\n", gid, *ga);
             int ra = min(*gb, gid), rb = max(*gb, gid);
             adj[adjindex(*ga, gid)] = max(adj[adjindex(*ga, gid)], adj[adjindex(ra, rb)]);
         }
     }
+    
     gids[rgids[*gb]] = gids[*length-1];
     rgids[gids[*length-1]] = rgids[*gb];
     *length -= 1;
@@ -196,8 +205,9 @@ int main(int argc, char *argv[]){
     srand(66); //time(0)
     N = atoi(argv[1]);
     int dim = atoi(argv[2]);
+    omp_set_num_threads(atoi(argv[3]));
     float data[N][dim];
-    for (int i = 0; i < N; i++) {
+    for (int i = 0; i < N; ++i) {
         for (int j = 0; j < dim; j++) {
             data[i][j] = randn();
         }
