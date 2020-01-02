@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <time.h>
+#include <omp.h>
 
 typedef struct group Group;
 typedef struct cluster Cluster;
@@ -18,7 +19,7 @@ struct cluster {
     Group** g;
     int num_point;
 };
-int N;
+int N, Nthrds;
 
 /*
     funct: create group and allocate the memory it needs
@@ -152,7 +153,8 @@ float max(const float a, const float b) {return a>b?a:b;}
 
 float matmul(float input1[], float input2[], int dim) {
     float dis = 0;
-    for (int i=0; i<dim; i++) {
+//    #pragma omp parallel for reduction(+:dis)
+    for (int i=0; i < dim; ++i) {
         dis += input1[i] * input2[i];
     }
     return dis;
@@ -161,34 +163,65 @@ float matmul(float input1[], float input2[], int dim) {
 
 void FindNearest(float* adj, int* gids, int* rgids, int* length, int *ga, int *gb) {
     float mind = 9999;
-    for (int i = 0; i < *length-1; i++) {
-        for (int j = i+1; j < *length; j++) {
-            int gi = gids[i], gj = gids[j];
-            float gd = adj[adjindex(gi, gj)];
-            if (gd < mind) {
-//                printf("{%d %d}", gi, gj);
-                mind = gd;
-                *ga = gi;
-                *gb = gj;
+    int L = *length;
+    #pragma omp parallel
+    {
+        int id, istart, iend, lga, lgb;
+        float lmind = 9999;
+        id = omp_get_thread_num();
+        istart = id * L / Nthrds;
+        iend = (id+1) * L / Nthrds;
+        if (id == Nthrds-1) iend = L;
+        for (int i = istart; i < iend; ++i) {
+            for (int j = i+1; j < L; ++j) {
+                int gi = gids[i], gj = gids[j];
+                float gd = adj[adjindex(gi, gj)];
+                if (gd < lmind) {
+    //                printf("{%d %d}", gi, gj);
+                    lmind = gd;
+                    lga = gi;
+                    lgb = gj;
+                }
+            }
+        }
+        
+        # pragma omp barrier
+        if (lmind < mind) {
+            mind = lmind;
+            *ga = lga;
+            *gb = lgb;
+        }
+
+//        printf("Merge %d %d\n", *ga, *gb);
+        
+        for (int i = istart; i < iend; ++i) {
+            int gid = gids[i];
+            if (gid < *ga) {
+    //            printf("Update adj(%d, %d)\n", gid, *ga);
+                adj[adjindex(gid, *ga)] = max(adj[adjindex(gid, *ga)], adj[adjindex(gid, *gb)]);
+            }
+            else if (gid > *ga && gid != *gb) {
+    //            printf("Update adj(%d, %d)\n", gid, *ga);
+                int ra = min(*gb, gid), rb = max(*gb, gid);
+                adj[adjindex(*ga, gid)] = max(adj[adjindex(*ga, gid)], adj[adjindex(ra, rb)]);
             }
         }
     }
-//    printf("Merge %d %d\n", *ga, *gb);
-    for (int i=0; i<*length; i++) {
-        int gid = gids[i];
-        if (gid < *ga) {
-//            printf("Update adj(%d, %d)\n", gid, *ga);
-            adj[adjindex(gid, *ga)] = max(adj[adjindex(gid, *ga)], adj[adjindex(gid, *gb)]);
-        }
-        else if (gid > *ga) {
-            if (gid == *gb) continue;
-//            printf("Update adj(%d, %d)\n", gid, *ga);
-            int ra = min(*gb, gid), rb = max(*gb, gid);
-            adj[adjindex(*ga, gid)] = max(adj[adjindex(*ga, gid)], adj[adjindex(ra, rb)]);
-        }
-    }
-    gids[rgids[*gb]] = gids[*length-1];
-    rgids[gids[*length-1]] = rgids[*gb];
+
+    
+//    #pragma omp parallel
+//    {
+//        int id, istart, iend;
+//        id = omp_get_thread_num();
+//        istart = id * length / Nthrds;
+//        iend = (id+1) * length / Nthrds;
+//        if (id == Nthrds-1) iend = length;
+//
+//    }
+
+    
+    gids[rgids[*gb]] = gids[L-1];
+    rgids[gids[L-1]] = rgids[*gb];
     *length -= 1;
 }
 
@@ -196,8 +229,10 @@ int main(int argc, char *argv[]){
     srand(66); //time(0)
     N = atoi(argv[1]);
     int dim = atoi(argv[2]);
+    Nthrds = atoi(argv[3]);
+    omp_set_num_threads(Nthrds);
     float data[N][dim];
-    for (int i = 0; i < N; i++) {
+    for (int i = 0; i < N; ++i) {
         for (int j = 0; j < dim; j++) {
             data[i][j] = randn();
         }
@@ -235,7 +270,7 @@ int main(int argc, char *argv[]){
 //    ShowAdj(adj, N);
 //    ShowCluster(cluster, gids, length);
     
-    int cluster_size=N-10;
+    int cluster_size=1;
     while (length > cluster_size) {
         int ga = 0, gb = 0;
         FindNearest(adj, gids, rgids, &length, &ga, &gb);
